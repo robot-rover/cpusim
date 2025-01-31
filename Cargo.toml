@@ -1,10 +1,10 @@
 [package]
 name = "cpusim"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 unicorn-engine = "2.1.1"
 elf = "0.7.4"
-gdbstub = { version = "0.7.3", features = ["std"] }
+gdbstub = "0.7.3"
 gdbstub_arch = "0.3.1"

@@ -1,22 +1,27 @@
 mod gdb;
 
-use std::fs;
+use std::collections::HashMap;
+use std::{fs, io};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
 use elf::abi::{PF_R, PF_W, PF_X, PT_LOAD};
 use elf::endian::AnyEndian;
 use elf::ElfBytes;
-use unicorn_engine::Unicorn;
+use gdb::EmuEventLoop;
+use gdbstub::stub::GdbStub;
+use unicorn_engine::{UcHookId, Unicorn};
 use unicorn_engine::unicorn_const::{Arch, Mode, Permission, SECOND_SCALE};
 
 struct Emulator {
     uni: Unicorn<'static, ()>,
+    breakpoints: HashMap<(u64, u64), UcHookId>,
 }
 
 impl Emulator {
     fn new() -> Self {
         let uni = Unicorn::new(Arch::ARM, Mode::LITTLE_ENDIAN).expect("failed to initialize Unicorn instance");
-        Self { uni }
+        Self { uni, breakpoints: HashMap::new() }
     }
 
     fn load_elf(&mut self, path: &Path) {
@@ -64,6 +69,17 @@ impl Emulator {
     }
 }
 
+fn wait_for_gdb_connection(port: u16) -> io::Result<TcpStream> {
+     let sockaddr = format!("0.0.0.0:{}", port);
+    eprintln!("Waiting for a GDB connection on {:?}...", sockaddr);
+
+    let sock = TcpListener::bind(sockaddr)?;
+    let (stream, addr) = sock.accept()?;
+    eprintln!("Debugger connected from {}", addr);
+
+    Ok(stream)
+}
+
 fn main() {
     let path = PathBuf::from("blink_simple.elf");
 
@@ -72,10 +88,9 @@ fn main() {
     emu.setup_memory();
     emu.load_elf(&path);
 
-    //emu.reg_write(RegisterARM::R0, 123).expect("failed write R0");
-    //emu.reg_write(RegisterARM::R5, 1337).expect("failed write R5");
+    let conn: TcpStream = wait_for_gdb_connection(9001).unwrap();
 
-    emu.uni.emu_start(0x1000, u64::MAX, 10 * SECOND_SCALE, 0).unwrap();
-    println!("PC: {:#x}", emu.uni.pc_read().unwrap());
+    let dbg = GdbStub::new(conn);
 
+    dbg.run_blocking::<EmuEventLoop>(&mut emu).unwrap();
 }
